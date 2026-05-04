@@ -221,6 +221,11 @@ class _SharedProjQCQP(ABC):
         if self.n_proj_constr > 0:
             Pv = self.Proj.allP_at_v(self.s1, dagger=True)  # shape (n, k)
             self.Fs[:, : self.n_proj_constr] = self.A2.conj().T @ Pv  # shape (m, k)
+            
+            # add contribution from preconditioner to the projector part of Fs
+            Pv_precond = self.Proj.allP_at_v(self.A1.conj().T @ (2*self.s1), dagger=True)
+            self.Fs[:, : self.n_proj_constr] += self.A2.conj().T @ Pv_precond
+            
         if self.n_gen_constr > 0:
             self.Fs[:, self.n_proj_constr :] = self.A2.conj().T @ np.column_stack(
                 self.s_2j
@@ -287,6 +292,11 @@ class _SharedProjQCQP(ABC):
             # Σ λ_j P_j^† s1
             proj_lags = lags[: self.n_proj_constr]
             y = self.Proj.weighted_sum_on_vector(self.s1, proj_lags, dagger=True)
+            
+            # Add contribution from preconditioner to the linear term S
+            yp = self.Proj.weighted_sum_on_vector(self.A1.conj().T @ (2 * self.s1), proj_lags, dagger=True) # add term from preconditioner
+            y += yp
+            
             S = self.s0 + self.A2.conj().T @ y
             Blags = lags[self.n_proj_constr :]
             S += sum(
@@ -298,7 +308,14 @@ class _SharedProjQCQP(ABC):
 
     def _get_total_C(self, lags: FloatNDArray) -> float:
         """Return Σ_general μ_j c_2j (0 if no general constraints)."""
-        return cast(float, np.sum(lags[self.n_proj_constr :] * self.c_2j))
+        
+        # preconditioner contribution to the constant term C in the dual function
+        proj_lags = lags[: self.n_proj_constr]
+        y = self.Proj.weighted_sum_on_vector(2 *self.s1, proj_lags, dagger=False) # Change to False
+        cp = np.real((2 *self.s1.conj().T) @ y)
+        return cast(float, np.sum(lags[self.n_proj_constr :] * self.c_2j) + cp) # Change to +
+        
+        # return cast(float, np.sum(lags[self.n_proj_constr :] * self.c_2j))
 
     @abstractmethod
     def _update_Acho(self, A: sp.csc_array | ComplexArray) -> None:
