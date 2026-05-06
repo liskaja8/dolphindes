@@ -221,11 +221,14 @@ class _SharedProjQCQP(ABC):
         if self.n_proj_constr > 0:
             Pv = self.Proj.allP_at_v(self.s1, dagger=True)  # shape (n, k)
             self.Fs[:, : self.n_proj_constr] = self.A2.conj().T @ Pv  # shape (m, k)
+            # print(f"original contribution to Fs term: {self.Fs[:, : self.n_proj_constr][:5,:]}")  # Debug print for Fs projector part
             
             # add contribution from preconditioner to the projector part of Fs
-            Pv_precond = self.Proj.allP_at_v(self.A1.conj().T @ (2*self.s1), dagger=True)
+            Pv_precond = self.Proj.allP_at_v(-self.A1.conj().T @ self.s1, dagger=True)
             self.Fs[:, : self.n_proj_constr] += self.A2.conj().T @ Pv_precond
-            
+            ak = self.Fs[:, : self.n_proj_constr]
+            # print(f"preconditioner contribution to Fs term: {ak[:5,:]}" )
+
         if self.n_gen_constr > 0:
             self.Fs[:, self.n_proj_constr :] = self.A2.conj().T @ np.column_stack(
                 self.s_2j
@@ -292,9 +295,11 @@ class _SharedProjQCQP(ABC):
             # Σ λ_j P_j^† s1
             proj_lags = lags[: self.n_proj_constr]
             y = self.Proj.weighted_sum_on_vector(self.s1, proj_lags, dagger=True)
+            # print(f"y from projector contribution to S: {y[:5]}")  # Debug print for y
             
             # Add contribution from preconditioner to the linear term S
-            yp = self.Proj.weighted_sum_on_vector(self.A1.conj().T @ (2 * self.s1), proj_lags, dagger=True) # add term from preconditioner
+            yp = self.Proj.weighted_sum_on_vector(-self.A1.conj().T @ self.s1, proj_lags, dagger=True) # add term from preconditioner
+            # print(f"yp from preconditioner contribution to S: {yp[:5]}")  # Debug print for yp
             y += yp
             
             S = self.s0 + self.A2.conj().T @ y
@@ -313,6 +318,7 @@ class _SharedProjQCQP(ABC):
         proj_lags = lags[: self.n_proj_constr]
         y = self.Proj.weighted_sum_on_vector(2 *self.s1, proj_lags, dagger=False) # Change to False
         cp = np.real((2 *self.s1.conj().T) @ y)
+        # print(f"Preconditioner contribution to dual constant term: {cp}")
         return cast(float, np.sum(lags[self.n_proj_constr :] * self.c_2j) + cp) # Change to +
         
         # return cast(float, np.sum(lags[self.n_proj_constr :] * self.c_2j))
@@ -449,10 +455,14 @@ class _SharedProjQCQP(ABC):
             Value x*^† A x* (real scalar).
         """
         A = self._get_total_A(lags)
+        # print(f"Total A matrix (first 5x5 block):\n{A[:5, :5]}")  # Debug print for A
         S = self._get_total_S(lags)
+        # print(f"Total S vector (first 5 entries): {S[:5]}")  # Debug print for S
         self._update_Acho(A)
         x_star: ComplexArray = self._Acho_solve(S)
+        # print(f"Current x*: {x_star[:5]}...")  # Debug print for first 5 entries
         xAx: float = np.real(np.vdot(x_star, A @ x_star))
+        # print(f"x*^† A x*: {xAx}")  # Debug print for the quadratic form value
 
         return x_star, xAx
 
@@ -504,6 +514,7 @@ class _SharedProjQCQP(ABC):
         hess_penalty: FloatNDArray = np.zeros((0, 0), dtype=float)
 
         xstar, dualval = self._get_xstar(lags)
+        # print(f"contribution to dual: {self.c0 + self._get_total_C(lags)}")
         dualval += self.c0 + self._get_total_C(lags)
 
         if get_hess:
@@ -519,6 +530,10 @@ class _SharedProjQCQP(ABC):
                 # get_hess implies get_grad also
                 grad = np.real(xstar.conj() @ (Fx + 2 * self.Fs))
                 grad[self.n_proj_constr :] += self.c_2j
+                
+                # add contribution from the preconditioner to the gradient
+                Pv_const = self.Proj.allP_at_v(2 * self.s1, dagger=False)  # shape (n, k)
+                grad[: self.n_proj_constr] += np.real(2 * self.s1.conj().T @ Pv_const) # shape (k,)
 
                 Ftot = Fx + self.Fs
                 hess = 2 * np.real(Ftot.conj().T @ self._Acho_solve(Ftot))
@@ -553,6 +568,10 @@ class _SharedProjQCQP(ABC):
                 xstar.conj() @ self.Fs[:, : self.n_proj_constr]
             )  # (k,) float64
             proj_grad = term1_proj + term2_proj  # (k,) float64
+            
+            # add contribution from the preconditioner to the gradient
+            Pv_const = self.Proj.allP_at_v(2 * self.s1, dagger=False)  # shape (n, k)
+            proj_grad += np.real(2 * self.s1.conj().T @ Pv_const) # shape (k,)
 
             if self.n_gen_constr > 0:
                 gen_constr_grad = np.zeros(self.n_gen_constr, dtype=float)
