@@ -705,15 +705,17 @@ def run_gcd(
 
         ## generate min A eig constraint
         minAeigv, minAeigw = QCQP._get_PSD_penalty(QCQP.current_lags)
+        print(f"min eigenvalue: {minAeigw:.6e}")
         minAeig_Pdiag = (QCQP.A1.conj().T @ minAeigv)[Pstruct_rows] * (
             QCQP.A2 @ minAeigv
         ).conj()[Pstruct_cols]
 
-        # Empirically, this is better than entrywise normalization,
-        # even though the norm of the direction vector is a free parameter.
-        minAeig_norm = la.norm(minAeig_Pdiag)
-        if minAeig_norm >= 1e-14:
-            new_Pdata_list.append(minAeig_Pdiag / minAeig_norm)
+        minAeig_Pdiag /= np.sqrt(np.real(minAeig_Pdiag.conj() * minAeig_Pdiag))
+        # minAeig_Pdiag * np.sqrt(np.real(maxViol_Pdiag.conj() * maxViol_Pdiag))
+        # use the same relative weights for minAeig_Pdiag as maxViol_Pdiag
+        # informally checked that minAeigw increases when increasing multiplier of
+        # minAeig_Pdiag
+        # new_Pdata_list.append(minAeig_Pdiag)
 
         ## add new constraints
         QCQP.add_constraints(
