@@ -57,6 +57,8 @@ class SparseSharedProjQCQP(_SharedProjQCQP):
         Right quadratic factor used in both projector and general constraints.
     s1 : ArrayLike
         Linear term coupled with projector constraints.
+    i1 : ArrayLike                                         <--- ADD THIS
+        New linear term vector (describe its purpose here). <--- ADD THIS
     Plist : list[ArrayLike]
         list of 2D arrays representing the projector matrices P_j.
     B_j : list[sp.csc_array] | None
@@ -76,6 +78,8 @@ class SparseSharedProjQCQP(_SharedProjQCQP):
         General constraint matrices (empty if none supplied).
     s0, s1, s_2j : ComplexArray, ComplexArray, list[ComplexArray]
         Complex vectors for objective / constraints.
+    i1 : ComplexArray                                      <--- ADD THIS
+        Complex vector for ...                             <--- ADD THIS
     c0 : float
         Objective constant.
     c_2j : FloatNDArray
@@ -241,6 +245,8 @@ class DenseSharedProjQCQP(_SharedProjQCQP):
         Left quadratic factor in projector constraints.
     s1 : ArrayLike
         Projector constraint linear term.
+    i1 : ArrayLike                                     <--- ADD THIS
+        New linear term vector.                        <--- ADD THIS
     Plist : list[ArrayLike]
         list of 2D arrays representing the projector matrices P_j.
     A2 : ArrayLike | None, default None
@@ -261,6 +267,7 @@ class DenseSharedProjQCQP(_SharedProjQCQP):
         c0: float,
         A1: ArrayLike,
         s1: ArrayLike,
+        i1: ArrayLike,             # <--- ADD THIS HERE
         Plist: list[ArrayLike],
         Pstruct: ArrayLike | None = None,
         A2: ArrayLike | None = None,
