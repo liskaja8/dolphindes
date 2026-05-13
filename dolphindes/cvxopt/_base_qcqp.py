@@ -301,8 +301,8 @@ class _SharedProjQCQP(ABC):
             # print(f"y from projector contribution to S: {y[:5]}")  # Debug print for y
             
             # Add contribution from preconditioner to the linear term
-            ypL = self.Proj.weighted_sum_on_vector(-self.A1.conj().T @ self.s1, proj_lags, dagger=True)
-            ypR = self.Proj.weighted_sum_on_vector(self.A2 @ self.s1, proj_lags, dagger=False)
+            ypL = self.Proj.weighted_sum_on_vector(-self.A1.conj().T @ self.i1, proj_lags, dagger=True)
+            ypR = self.Proj.weighted_sum_on_vector(self.A2 @ self.i1, proj_lags, dagger=False)
             y += self.A2.conj().T @ ypL/2 - self.A1 @ ypR/2
             
             S = self.s0 + self.A2.conj().T @ y

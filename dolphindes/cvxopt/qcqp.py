@@ -286,6 +286,7 @@ class DenseSharedProjQCQP(_SharedProjQCQP):
             A1,
             A2,
             s1,
+            i1,  # <--- ADD THIS HERE
             Plist,
             Pstruct,
             B_j=B_j,
