@@ -244,7 +244,7 @@ class _SharedProjQCQP(ABC):
             # self.Fs[:, : self.n_proj_constr] += FsR
             Fs = Fs0 + FsL + FsR
             self.Fs[:, : self.n_proj_constr] = Fs
-            print(f"3 rows of Fs: {Fs[:3]}")
+            # print(f"3 rows of Fs: {Fs[:3]}")
 
         if self.n_gen_constr > 0:
             self.Fs[:, self.n_proj_constr :] = self.A2.conj().T @ np.column_stack(
@@ -536,7 +536,7 @@ class _SharedProjQCQP(ABC):
         xstar, dualval = self._get_xstar(lags)
         # print(f"contribution to dual: {self.c0 + self._get_total_C(lags)}")
         dualval += self.c0 + self._get_total_C(lags)
-        print(f"Dual value before penalty: {dualval}")  # Debug print for dual value before penalty
+        # print(f"Dual value before penalty: {dualval}")  # Debug print for dual value before penalty
 
         if get_hess:
             try:
