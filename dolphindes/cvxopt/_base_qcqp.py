@@ -214,6 +214,7 @@ class _SharedProjQCQP(ABC):
         self.precomputed_As = []
         for i in range(self.n_proj_constr):
             Ak = Sym(self.A1 @ self.Proj[i] @ self.A2)
+            # print(f"Precomputed A matrix for projector constraint {i} (first 3x3 block):\n{Ak[:3, :3]}")  # Debug print for precomputed A_k
             self.precomputed_As.append(Ak)
         for i in range(len(self.B_j)):
             self.precomputed_As.append(Sym(self.A2.conj().T @ self.B_j[i] @ self.A2))
@@ -224,13 +225,26 @@ class _SharedProjQCQP(ABC):
         # For diagonal P: allP_at_v(self.s1, dagger=True) == (Pdiags.conj().T * s1).T
         if self.n_proj_constr > 0:
             Pv = self.Proj.allP_at_v(self.s1, dagger=True)  # shape (n, k)
-            self.Fs[:, : self.n_proj_constr] = self.A2.conj().T @ Pv  # shape (m, k)s[:, : self.n_proj_constr][:5,:]}")  # Debug print for Fs projector part
+            # print(f"3 elements in s1: {self.s1[:3]}")
+            # print(f"3 elements in Pv: {Pv[:3]}")
+            Fs0 = self.A2.conj().T @ Pv  # shape (m, k)
+            # print(f"3 rows of Fs0: {Fs0[:3]}")  # Debug print for the initial projector contribution to the linear term
+            # self.Fs[:, : self.n_proj_constr] = Fs0  # shape (m, k)
             
             # add contribution from preconditioner to the projector part of Fs
             Pv_precondL = self.Proj.allP_at_v(-self.A1.conj().T @ self.i1, dagger=True)
+            # print(f"3 elements in Pv_precondL: {Pv_precondL[:3]}")  # Debug print for Pv_precondL
+            FsL = (self.A2.conj().T @ Pv_precondL)/2
+            # print(f"3 rows of FsL: {FsL[:3]}")  # Debug print for the preconditioner contribution to the linear term
             Pv_precondR = self.Proj.allP_at_v(self.A2 @ self.i1, dagger=False)
-            self.Fs[:, : self.n_proj_constr] += self.A2.conj().T @ Pv_precondL/2
-            self.Fs[:, : self.n_proj_constr] += -self.A1 @ Pv_precondR/2
+            # print(f"3 elements in Pv_precondR: {Pv_precondR[:3]}")  # Debug print for Pv_precondR
+            FsR = (-self.A1 @ Pv_precondR)/2
+            # print(f"3 rows of FsR: {FsR[:3]}")  # Debug print for the preconditioner contribution to the linear term
+            # self.Fs[:, : self.n_proj_constr] += FsL
+            # self.Fs[:, : self.n_proj_constr] += FsR
+            Fs = Fs0 + FsL + FsR
+            self.Fs[:, : self.n_proj_constr] = Fs
+            print(f"3 rows of Fs: {Fs[:3]}")
 
         if self.n_gen_constr > 0:
             self.Fs[:, self.n_proj_constr :] = self.A2.conj().T @ np.column_stack(
@@ -298,10 +312,10 @@ class _SharedProjQCQP(ABC):
             # Σ λ_j P_j^† s1
             proj_lags = lags[: self.n_proj_constr]
             y = self.Proj.weighted_sum_on_vector(self.s1, proj_lags, dagger=True)
-            # print(f"y from projector contribution to S: {y[:5]}")  # Debug print for y
+            # print(f"y from projector contribution to S: {y[:3]}")  # Debug print for y
             
             # Add contribution from preconditioner to the linear term
-            ypL = self.Proj.weighted_sum_on_vector(-self.A1.conj().T @ self.i1, proj_lags, dagger=True)
+            ypL = self.Proj.weighted_sum_on_vector(self.A1.conj().T @ self.i1, proj_lags, dagger=True)
             ypR = self.Proj.weighted_sum_on_vector(self.A2 @ self.i1, proj_lags, dagger=False)
             y += self.A2.conj().T @ ypL/2 - self.A1 @ ypR/2
             
@@ -320,7 +334,9 @@ class _SharedProjQCQP(ABC):
         # preconditioner contribution to the constant term C in the dual function
         proj_lags = lags[: self.n_proj_constr]
         y = self.A2.conj().T @ self.Proj.weighted_sum_on_vector(2 *self.s1, proj_lags, dagger=True)
+        # print(f"y from projector contribution to C: {y[:3]}")  # Debug print for y
         yp = -self.A1 @ self.Proj.weighted_sum_on_vector(self.A2 @ self.i1, proj_lags, dagger=False)
+        # print(f"yp from projector contribution to C: {yp[:3]}")  # Debug print for yp
         cp = np.real(self.i1.conj().T @ (y + yp))
         # print(f"Preconditioner contribution to dual constant term: {cp}")
         return cast(float, np.sum(lags[self.n_proj_constr :] * self.c_2j) + cp) # Change to +
@@ -459,12 +475,12 @@ class _SharedProjQCQP(ABC):
             Value x*^† A x* (real scalar).
         """
         A = self._get_total_A(lags)
-        # print(f"Total A matrix (first 5x5 block):\n{A[:5, :5]}")  # Debug print for A
+        # print(f"Total A matrix (first 3x3 block):\n{A[:3, :3]}")  # Debug print for A
         S = self._get_total_S(lags)
-        # print(f"Total S vector (first 5 entries): {S[:5]}")  # Debug print for S
+        # print(f"Total S vector (first 3 entries): {S[:3]}")  # Debug print for S
         self._update_Acho(A)
         x_star: ComplexArray = self._Acho_solve(S)
-        # print(f"Current x*: {x_star[:5]}...")  # Debug print for first 5 entries
+        # print(f"Current x*: {x_star[:3]}...")  # Debug print for first 3 entries
         xAx: float = np.real(np.vdot(x_star, A @ x_star))
         # print(f"x*^† A x*: {xAx}")  # Debug print for the quadratic form value
 
@@ -520,6 +536,7 @@ class _SharedProjQCQP(ABC):
         xstar, dualval = self._get_xstar(lags)
         # print(f"contribution to dual: {self.c0 + self._get_total_C(lags)}")
         dualval += self.c0 + self._get_total_C(lags)
+        print(f"Dual value before penalty: {dualval}")  # Debug print for dual value before penalty
 
         if get_hess:
             try:
@@ -537,7 +554,7 @@ class _SharedProjQCQP(ABC):
                 
                 # add contribution from the preconditioner to the gradient
                 Pv_const1 = self.A2.conj().T @ self.Proj.allP_at_v(2 * self.s1, dagger=True)  # shape (n, k)
-                Pv_const2 = self.A1 @ self.Proj.allP_at_v(self.A2 @ self.i1, dagger=False)  # shape (n, k)
+                Pv_const2 = -self.A1 @ self.Proj.allP_at_v(self.A2 @ self.i1, dagger=False)  # shape (n, k)
                 grad[: self.n_proj_constr] += np.real(self.i1.conj().T @ (Pv_const1 + Pv_const2)) # shape (k,)
                 
 
@@ -577,7 +594,7 @@ class _SharedProjQCQP(ABC):
             
             # add contribution from the preconditioner to the gradient
             Pv_const1 = self.A2.conj().T @ self.Proj.allP_at_v(2 * self.s1, dagger=True)  # shape (n, k)
-            Pv_const2 = self.A1 @ self.Proj.allP_at_v(self.A2 @ self.i1, dagger=False)  # shape (n, k)
+            Pv_const2 = -self.A1 @ self.Proj.allP_at_v(self.A2 @ self.i1, dagger=False)  # shape (n, k)
             proj_grad += np.real(self.i1.conj().T @ (Pv_const1 + Pv_const2)) # shape (k,)
 
             if self.n_gen_constr > 0:
