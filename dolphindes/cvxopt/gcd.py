@@ -105,7 +105,15 @@ def merge_lead_constraints(QCQP: _SharedProjQCQP, merged_num: int = 2) -> None:
 
     if hasattr(QCQP, "Fs"):
         QCQP.Fs = QCQP.Fs[:, merged_num - 1 :]
-        QCQP.Fs[:, 0] = QCQP.A2.conj().T @ (new_P.conj().T @ QCQP.s1)
+        
+        # preconditioner update
+        # QCQP.Fs[:, 0] = QCQP.A2.conj().T @ (new_P.conj().T @ QCQP.s1)
+        # Calculate the 3 components of Fs for the merged projector
+        Fs0_new = QCQP.A2.conj().T @ (new_P.conj().T @ QCQP.s1)
+        FsL_new = (QCQP.A2.conj().T @ (new_P.conj().T @ (-QCQP.A1.conj().T @ QCQP.i1))) / 2
+        FsR_new = (-QCQP.A1 @ (new_P @ (QCQP.A2 @ QCQP.i1))) / 2
+        QCQP.Fs[:, 0] = Fs0_new + FsL_new + FsR_new
+        # end of update
 
     QCQP.current_lags = QCQP.current_lags[merged_num - 1 :]
     QCQP.current_lags[0] = Pnorm
@@ -177,9 +185,21 @@ def add_constraints(
         new_Fs = np.zeros(
             (QCQP.Fs.shape[0], len(QCQP.Proj) + QCQP.n_gen_constr), dtype=complex
         )
-        new_Fs[:, : len(QCQP.Proj)] = QCQP.A2.conj().T @ QCQP.Proj.allP_at_v(
-            QCQP.s1, dagger=True
-        )
+        
+        # preconditioner  update
+        # new_Fs[:, : len(QCQP.Proj)] = QCQP.A2.conj().T @ QCQP.Proj.allP_at_v(
+        #     QCQP.s1, dagger=True
+        # )
+        # Calculate the 3 components of Fs for the entire projector set
+        Pv = QCQP.Proj.allP_at_v(QCQP.s1, dagger=True)
+        Fs0 = QCQP.A2.conj().T @ Pv
+        Pv_precondL = QCQP.Proj.allP_at_v(-QCQP.A1.conj().T @ QCQP.i1, dagger=True)
+        FsL = (QCQP.A2.conj().T @ Pv_precondL) / 2
+        Pv_precondR = QCQP.Proj.allP_at_v(QCQP.A2 @ QCQP.i1, dagger=False)
+        FsR = (-QCQP.A1 @ Pv_precondR) / 2
+        new_Fs[:, : len(QCQP.Proj)] = Fs0 + FsL + FsR  
+        # end of update      
+        
         new_Fs[:, len(QCQP.Proj) :] = QCQP.Fs[:, proj_cstrt_num:]
         QCQP.Fs = new_Fs
 
@@ -309,9 +329,19 @@ def run_gcd(
         new_Pdata_list = []
         Pstruct_rows, Pstruct_cols = QCQP.Proj.Pstruct.nonzero()
         ## generate max dualgrad constraint
-        maxViol_Pdiag = (2 * QCQP.s1 - (QCQP.A1.conj().T @ QCQP.current_xstar))[
-            Pstruct_rows
-        ] * (QCQP.A2 @ QCQP.current_xstar).conj()[Pstruct_cols]
+        
+        # update preconditioner
+        # maxViol_Pdiag = (2 * QCQP.s1 - (QCQP.A1.conj().T @ QCQP.current_xstar))[
+        #     Pstruct_rows
+        # ] * (QCQP.A2 @ QCQP.current_xstar).conj()[Pstruct_cols]
+        u = QCQP.A1.conj().T @ QCQP.current_xstar
+        y = QCQP.A2 @ QCQP.current_xstar
+        u_precond = QCQP.A1.conj().T @ QCQP.i1
+        y_precond = QCQP.A2 @ QCQP.i1
+        left_vec = 2 * QCQP.s1 - u - u_precond
+        right_vec = (y + y_precond).conj()
+        maxViol_Pdiag = left_vec[Pstruct_rows] * right_vec[Pstruct_cols]
+        # end of update
 
         if la.norm(maxViol_Pdiag) >= 1e-14:
             new_Pdata_list.append(maxViol_Pdiag)
