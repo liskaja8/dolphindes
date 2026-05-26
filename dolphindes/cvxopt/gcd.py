@@ -16,6 +16,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import scipy.linalg as la
+import scipy.sparse as sp
 
 from dolphindes.cvxopt._base_qcqp import _SharedProjQCQP
 from dolphindes.cvxopt.optimization import OptimizationHyperparameters
@@ -334,13 +335,25 @@ def run_gcd(
         # maxViol_Pdiag = (2 * QCQP.s1 - (QCQP.A1.conj().T @ QCQP.current_xstar))[
         #     Pstruct_rows
         # ] * (QCQP.A2 @ QCQP.current_xstar).conj()[Pstruct_cols]
-        u = QCQP.A1.conj().T @ QCQP.current_xstar
-        y = QCQP.A2 @ QCQP.current_xstar
-        u_precond = QCQP.A1.conj().T @ QCQP.i1
-        y_precond = QCQP.A2 @ QCQP.i1
-        left_vec = 2 * QCQP.s1 - u - u_precond
-        right_vec = (y + y_precond).conj()
-        maxViol_Pdiag = left_vec[Pstruct_rows] * right_vec[Pstruct_cols]
+        # u = QCQP.A1.conj().T @ QCQP.current_xstar
+        # y = QCQP.A2 @ QCQP.current_xstar
+        # u_precond = QCQP.A1.conj().T @ QCQP.i1
+        # y_precond = QCQP.A2 @ QCQP.i1
+        # left_vec = 2 * QCQP.s1 - u - u_precond
+        # right_vec = (y + y_precond).conj()
+        # maxViol_Pdiag = left_vec[Pstruct_rows] * right_vec[Pstruct_cols]
+        
+        # augmented preconditioner update for maxViol_Pdiag
+        # x_aug is the same as current_xtar, but one dimension larger and that extra dimension element is 1
+        x_aug = np.concatenate((QCQP.current_xstar, np.array([1.0])))
+        # print(f"size of A2 is {QCQP.A2.shape}")
+        A2_aug = sp.hstack((QCQP.A2, np.zeros((QCQP.A2.shape[0], 1))))
+        right_vec_aug = A2_aug @ x_aug.conj()
+        A1_aug = np.block([[-QCQP.A1],
+                    [-QCQP.i1.conj().T @ QCQP.A1 + QCQP.s1.conj().T]]).conj().T
+        left_vec_aug = A1_aug @ x_aug
+        print(f" size of left_vec_aug is {left_vec_aug.shape}, size of right_vec_aug is {right_vec_aug.shape}")
+        maxViol_Pdiag = left_vec_aug[Pstruct_rows] * right_vec_aug[Pstruct_cols]
         # end of update
 
         if la.norm(maxViol_Pdiag) >= 1e-14:
