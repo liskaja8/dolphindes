@@ -159,10 +159,15 @@ def _inner_product_Mi(QCQP, Pdata_A, Pdata_B, real_part=True) -> float | complex
     """
     Calculates the inner product as a trace: trace(M_A^H @ M_B).
     """
-    Ma = _get_Mi(QCQP, Pdata_A)
-    Mb = _get_Mi(QCQP, Pdata_B)
     
-    # Hermitian conjugate for norm stability in the Gram-Schmidt process
+    if real_part:
+        Ma = np.block([_get_Mi(QCQP, np.real(Pdata_A)), _get_Mi(QCQP, np.imag(Pdata_A))])
+        Mb = np.block([_get_Mi(QCQP, np.real(Pdata_B)), _get_Mi(QCQP, np.imag(Pdata_B))])
+    else:
+        Ma = _get_Mi(QCQP, Pdata_A)
+        Mb = _get_Mi(QCQP, Pdata_B)
+        
+        
     Ma_H = Ma.conj().T
     
     if sp.issparse(Ma_H) and sp.issparse(Mb):
@@ -171,7 +176,7 @@ def _inner_product_Mi(QCQP, Pdata_A, Pdata_B, real_part=True) -> float | complex
     else:
         trace_val = np.trace(Ma_H @ Mb)
         
-    return np.real(trace_val) if real_part else trace_val
+    return trace_val if not real_part else np.real(trace_val)
 # end of update
 
 def add_constraints(
@@ -215,10 +220,14 @@ def add_constraints(
     #     for m in range(added_Pdata_num):
     #         # do (modified) Gram-Schmidt orthogonalization for each added Pdata
     #         for j in range(proj_cstrt_num + m):
-    #             added_Pdata_list[m] -= (
-    #                 CRdot(new_Pdata[:, j], added_Pdata_list[m]) * new_Pdata[:, j]
-    #             )
-    #         added_Pdata_list[m] /= la.norm(added_Pdata_list[m])
+    #         #     added_Pdata_list[m] -= (
+    #         #         CRdot(new_Pdata[:, j], added_Pdata_list[m]) * new_Pdata[:, j]
+    #         #     )
+    #                 x = added_Pdata_list[m] - (
+    #                     CRdot(new_Pdata[:, j], added_Pdata_list[m]) * new_Pdata[:, j]
+    #                 )
+    #         # added_Pdata_list[m] /= la.norm(added_Pdata_list[m])
+    #         x /= la.norm(x)
 
     #         new_Pdata[:, proj_cstrt_num + m] = added_Pdata_list[m]
     
@@ -230,14 +239,19 @@ def add_constraints(
             # Modified Gram-Schmidt with the new metric over M matrices
             for j in range(proj_cstrt_num + m):
                 # Calculate the projection using the new metric
-                proj_coef = _inner_product_Mi(QCQP, new_Pdata[:, j], added_Pdata_list[m])
+                proj_coef = _inner_product_Mi(QCQP, new_Pdata[:, j], added_Pdata_list[m], real_part=False)
                 added_Pdata_list[m] -= proj_coef * new_Pdata[:, j]
             
             # Normalize with respect to the new metric
-            norm_sq = _inner_product_Mi(QCQP, added_Pdata_list[m], added_Pdata_list[m])
+            norm_sq = np.real(_inner_product_Mi(QCQP, added_Pdata_list[m], added_Pdata_list[m], real_part=False))
             if norm_sq > 1e-14:
                 added_Pdata_list[m] /= np.sqrt(norm_sq)
 
+            # y = added_Pdata_list[m]
+            # y /= la.norm(y)
+            # xy = CRdot(x, y)
+            # print('xy', xy)
+            
             new_Pdata[:, proj_cstrt_num + m] = added_Pdata_list[m]
     # end of update
 
@@ -368,6 +382,7 @@ def run_gcd(
     #     QCQP.current_lags[: QCQP.n_proj_constr] = (
     #         realext_Pdata_R @ QCQP.current_lags[: QCQP.n_proj_constr]
     #     )
+    #     print(realext_Pdata_R)
     #     QCQP.compute_precomputed_values()
     if orthonormalize:
         # The original la.qr orthogonalization must be replaced
@@ -390,6 +405,7 @@ def run_gcd(
             
             # Normalize with respect to the custom metric
             norm_sq = _inner_product_Mi(QCQP, current_vec, current_vec)
+            # print(f"Constraint {m}: norm squared before normalization = {norm_sq}")
             if norm_sq > 1e-14:
                 R[m, m] = np.sqrt(norm_sq)
                 ortho_Pdata[:, m] = current_vec / R[m, m]
@@ -398,6 +414,8 @@ def run_gcd(
                 ortho_Pdata[:, m] = current_vec
 
         QCQP.Proj.set_Pdata_column_stack(ortho_Pdata)
+        # print('QCQP.current_lags', QCQP.current_lags)
+        # print('R', R)
         
         # Update the Lagrange multipliers using the transition matrix R 
         # to keep the dual function value invariant
