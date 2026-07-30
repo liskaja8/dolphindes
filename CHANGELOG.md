@@ -3,6 +3,20 @@
 Notable changes to dolphindes. Versions follow [semantic versioning](https://semver.org);
 while we're pre-1.0, the public API may still change between minor releases.
 
+## Unreleased
+
+- **Tighter GCD bounds:** the smallest-eigenvector constraint GCD generates each
+  iteration is now normalized as a whole rather than entry-by-entry. Dividing each
+  entry by its own modulus flattened every magnitude to 1, keeping only the phase and
+  discarding how strongly each entry moves the smallest eigenvalue; the phase is the
+  part the theory fixes, while the magnitude profile is a free heuristic. Measured on
+  LDOS bounds at ndof = 400/900/1600, under both orthonormalization metrics and 5
+  starting points: 0.14–1.35% tighter bound at equal iteration count in all 16 paired
+  comparisons, reaching the old 15-iteration bound in 12–15 iterations.
+- **New:** `GCDHyperparameters(method=...)` selects the optimizer GCD uses for its
+  inner dual solve, `"newton"` (the default, unchanged behaviour) or `"bfgs"`. This
+  was previously hardcoded.
+
 ## [0.2.2] — 2026-07-29
 
 Performance. Dual solves are 2.4–7.5x faster with identical results, and the gains
