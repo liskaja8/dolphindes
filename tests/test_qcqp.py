@@ -18,6 +18,7 @@ from dolphindes.cvxopt import (
     SparseSharedProjQCQP,
     gcd,
 )
+from dolphindes.util import Sym
 
 
 @pytest.fixture
@@ -813,6 +814,83 @@ def test_run_gcd_hilbert_schmidt_runs(sparse_qcqp_data):
     qcqp = sparse_qcqp_data["qcqp"]
     qcqp.run_gcd(params)
     assert qcqp.current_dual is not None and np.isfinite(qcqp.current_dual)
+
+
+def _record_gcd_inner_methods(qcqp, params, monkeypatch):
+    """Run GCD and return the ``method`` argument of every inner dual solve."""
+    seen = []
+    original = type(qcqp).solve_current_dual_problem
+
+    def spy(self, method, *args, **kwargs):
+        seen.append(method)
+        return original(self, method, *args, **kwargs)
+
+    monkeypatch.setattr(type(qcqp), "solve_current_dual_problem", spy)
+    qcqp.run_gcd(params)
+    return seen
+
+
+@pytest.mark.parametrize("method, expected", [(None, "newton"), ("bfgs", "bfgs")])
+def test_run_gcd_inner_solve_method(sparse_qcqp_data, monkeypatch, method, expected):
+    """GCDHyperparameters.method selects the inner dual optimizer; the default
+    (an unset field) still routes to Newton."""
+    kwargs = {} if method is None else {"method": method}
+    params = GCDHyperparameters(
+        max_gcd_iter_num=2,
+        max_proj_cstrt_num=6,
+        gcd_iter_period=5,
+        gcd_tol=1e-3,
+        **kwargs,
+    )
+    qcqp = sparse_qcqp_data["qcqp"]
+    seen = _record_gcd_inner_methods(qcqp, params, monkeypatch)
+
+    assert seen and set(seen) == {expected}
+    assert qcqp.current_dual is not None and np.isfinite(qcqp.current_dual)
+
+
+def test_minAeig_constraint_raises_smallest_eigenvalue(sparse_qcqp_data):
+    """The smallest-eigenvector constraint must move away from the PSD boundary.
+
+    Reproduces run_gcd's construction of that constraint and checks the property it
+    exists for: turning up its multiplier from 0 increases the smallest eigenvalue
+    of A(lags).
+    """
+    qcqp = sparse_qcqp_data["qcqp"]
+    lags = _interior_feasible_lags(qcqp)
+
+    v, _w = qcqp._get_PSD_penalty(lags)
+    v = v / np.linalg.norm(v)
+    rows, cols = qcqp.Proj.Pstruct.nonzero()
+    pdata = (qcqp.A1.conj().T @ v)[rows] * (qcqp.A2 @ v).conj()[cols]
+    pdata = pdata / np.linalg.norm(pdata)
+
+    P = qcqp.Proj.Pstruct.astype(complex, copy=True)
+    P.data = pdata
+    A_new = Sym(qcqp.A1 @ P @ qcqp.A2)
+
+    A_base = qcqp._get_total_A(lags)
+    A_base = A_base.toarray() if sp.issparse(A_base) else np.asarray(A_base)
+    A_new = A_new.toarray() if sp.issparse(A_new) else np.asarray(A_new)
+
+    def smallest_eig(t):
+        return float(np.linalg.eigvalsh(A_base + t * A_new)[0])
+
+    # Hellmann-Feynman: d(eta)/dt at t=0 is v^H A_new v, and it must be positive.
+    analytic = float(np.real(v.conj() @ (A_new @ v)))
+    assert analytic > 0, "min-eig constraint steers toward the PSD boundary, not away"
+
+    h = 1e-6 * max(1.0, abs(smallest_eig(0.0)))
+    numeric = (smallest_eig(h) - smallest_eig(-h)) / (2 * h)
+    assert np.isclose(analytic, numeric, rtol=1e-4, atol=1e-8), (
+        f"eigenvalue derivative mismatch: analytic {analytic}, numeric {numeric}"
+    )
+
+
+def test_invalid_gcd_method_raises():
+    """An unknown inner-solve method is rejected at construction time."""
+    with pytest.raises(ValueError, match="method"):
+        GCDHyperparameters(method="quasi-newton")
 
 
 def _dense_diag_qcqp(n=24, k=5, seed=7):

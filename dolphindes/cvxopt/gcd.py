@@ -25,6 +25,7 @@ from dolphindes.types import ComplexArray, FloatNDArray, SparseDense
 from dolphindes.util import CRdot, Sym
 
 OrthoMetric = Literal["euclidean", "hilbert_schmidt"]
+DualMethod = Literal["newton", "bfgs"]
 
 
 def _validate_metric(metric: str, param: str = "metric") -> None:
@@ -32,6 +33,13 @@ def _validate_metric(metric: str, param: str = "metric") -> None:
     valid = get_args(OrthoMetric)
     if metric not in valid:
         raise ValueError(f"{param} must be one of {valid}, got {metric!r}.")
+
+
+def _validate_method(method: str, param: str = "method") -> None:
+    """Raise ValueError if ``method`` is not a supported :data:`DualMethod`."""
+    valid = get_args(DualMethod)
+    if method not in valid:
+        raise ValueError(f"{param} must be one of {valid}, got {method!r}.")
 
 
 def _frob_inner(A: Any, B: Any) -> float:
@@ -360,6 +368,11 @@ class GCDHyperparameters:
         Optimization hyperparameters used for the internal dual solve at each GCD
         iteration. If None, GCD uses defaults suitable for frequent re-solves
         (notably `max_restart=1`).
+    method : str
+        Optimizer used for the inner dual solve at each GCD iteration. Either
+        ``"newton"`` (the default: alternating Newton / gradient descent) or
+        ``"bfgs"``. See
+        :meth:`~dolphindes.cvxopt._base_qcqp._SharedProjQCQP.solve_current_dual_problem`.
     max_gcd_iter_num : int
         Maximum number of GCD iterations.
     gcd_iter_period : int
@@ -372,13 +385,15 @@ class GCDHyperparameters:
     orthonormalize: bool = True
     ortho_metric: OrthoMetric = "hilbert_schmidt"
     opt_params: OptimizationHyperparameters | None = None
+    method: DualMethod = "newton"
     max_gcd_iter_num: int = 50
     gcd_iter_period: int = 5
     gcd_tol: float = 1e-2
 
     def __post_init__(self) -> None:
-        """Validate that ortho_metric is one of the supported metrics."""
+        """Validate that ortho_metric and method are among the supported values."""
         _validate_metric(self.ortho_metric, param="ortho_metric")
+        _validate_method(self.method, param="method")
 
 
 def merge_lead_constraints(
@@ -583,6 +598,8 @@ def run_gcd(
     opt_params : OptimizationHyperparameters, optional
         Optimization hyperparameters for the internal dual solve at every GCD
         iteration.
+    method : str, optional
+        Optimizer for the internal dual solve, ``"newton"`` (default) or ``"bfgs"``.
     max_gcd_iter_num : int, optional
         Maximum number of GCD iterations, by default 50.
     gcd_iter_period : int, optional
@@ -618,6 +635,7 @@ def run_gcd(
 
     orthonormalize = gcd_params.orthonormalize
     ortho_metric = gcd_params.ortho_metric
+    method = gcd_params.method
     max_proj_cstrt_num = gcd_params.max_proj_cstrt_num
     max_gcd_iter_num = gcd_params.max_gcd_iter_num
     gcd_iter_period = gcd_params.gcd_iter_period
@@ -654,7 +672,7 @@ def run_gcd(
         # print('QCQP.current_lags', QCQP.current_lags)
         # print('QCQP.Fs.shape', QCQP.Fs.shape)
         QCQP.solve_current_dual_problem(
-            "newton", init_lags=QCQP.current_lags, opt_params=opt_params
+            method, init_lags=QCQP.current_lags, opt_params=opt_params
         )
         assert QCQP.current_dual is not None
         assert QCQP.current_xstar is not None
@@ -691,12 +709,11 @@ def run_gcd(
             QCQP.A2 @ minAeigv
         ).conj()[Pstruct_cols]
 
-        minAeig_Pdiag /= np.sqrt(np.real(minAeig_Pdiag.conj() * minAeig_Pdiag))
-        # minAeig_Pdiag * np.sqrt(np.real(maxViol_Pdiag.conj() * maxViol_Pdiag))
-        # use the same relative weights for minAeig_Pdiag as maxViol_Pdiag
-        # informally checked that minAeigw increases when increasing multiplier of
-        # minAeig_Pdiag
-        new_Pdata_list.append(minAeig_Pdiag)
+        # Empirically, this is better than entrywise normalization,
+        # even though the norm of the direction vector is a free parameter.
+        minAeig_norm = la.norm(minAeig_Pdiag)
+        if minAeig_norm >= 1e-14:
+            new_Pdata_list.append(minAeig_Pdiag / minAeig_norm)
 
         ## add new constraints
         QCQP.add_constraints(
