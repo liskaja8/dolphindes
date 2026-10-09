@@ -710,12 +710,16 @@ def run_gcd(
             QCQP.A2 @ minAeigv
         ).conj()[Pstruct_cols]
 
-        minAeig_Pdiag /= np.sqrt(np.real(minAeig_Pdiag.conj() * minAeig_Pdiag))
-        # minAeig_Pdiag * np.sqrt(np.real(maxViol_Pdiag.conj() * maxViol_Pdiag))
-        # use the same relative weights for minAeig_Pdiag as maxViol_Pdiag
-        # informally checked that minAeigw increases when increasing multiplier of
-        # minAeig_Pdiag
-        # new_Pdata_list.append(minAeig_Pdiag)
+        # entrywise normalization to unit modulus (zero entries are kept zero)
+        minAeig_abs = np.abs(minAeig_Pdiag)
+        if la.norm(minAeig_abs) >= 1e-14:
+            minAeig_Pdiag = np.divide(
+                minAeig_Pdiag,
+                minAeig_abs,
+                out=np.zeros_like(minAeig_Pdiag),
+                where=minAeig_abs > 0,
+            )
+            new_Pdata_list.append(minAeig_Pdiag)
 
         ## add new constraints
         QCQP.add_constraints(
