@@ -32,7 +32,10 @@ Lagrange matrix is positive definite.
 Usage
 -----
     python maxDQparetoGCD.py in.mat out.mat  # in.mat from maxDQparetoGCD.m
-    NGCD=20 NU=12 NULOG=-2.5,1.5 python maxDQparetoGCD.py ...
+    NGCD=20 NU=13 NULOG=-3,1 python maxDQparetoGCD.py ...
+    NU_IDX=k python maxDQparetoGCD.py in.mat out.mat   # weight k only (0 based, job array)
+                                                     # -> out_nuKK.npz next to out.mat
+    MERGE=1 python maxDQparetoGCD.py in.mat out.mat    # out_nu*.npz -> out.mat
 
 in.mat:  R0, X0, omW [N x N] (Ohm), Fth, Fph [1 x N], port (0 based), I0, Vp, Ngcd
 out.mat: nu, nuMax, gGlobal, gGCD [1 x nNu], Iopt, Vsca [N x nNu] (GCD dual optimal),
@@ -63,7 +66,7 @@ def Msym(M):
 
 def main(argv):
     here = os.path.dirname(os.path.abspath(__file__))
-    inFile = argv[1] if len(argv) >= 2 else os.path.join(here, "maxDQpareto_patch21ka1_gcd20_in.mat")
+    inFile = argv[1] if len(argv) >= 2 else os.path.join(here, "results", "maxDQpareto_patch21ka1_gcd20_in.mat")
     outFile = argv[2] if len(argv) >= 3 else inFile.replace("_in.mat", "_out.mat")
     data = sio.loadmat(inFile, squeeze_me=True)
     R0 = np.asarray(data["R0"], dtype=float)
@@ -90,6 +93,16 @@ def main(argv):
     Ud = Msym(4 * np.pi * (np.outer(Fth.conj(), Fth) + np.outer(Fph.conj(), Fph)) / (2 * Z0VAC) / P)
     nuMax = np.max(la.eigh(Ud, Qs * omW, eigvals_only=True))
     nuList = nuMax * np.logspace(nuLog[0], nuLog[1], nNu)
+    partFile = outFile.replace(".mat", "_nu{:02d}.npz")
+    if os.environ.get("MERGE", "0") == "1":
+        parts = [np.load(partFile.format(k), allow_pickle=True) for k in range(nNu)]
+        out = {key: [part[key][()] for part in parts] for key in parts[0].files if key != "nuIdx"}
+        return save(outFile, nuList, nuMax, Ngcd, out)
+    if "NU_IDX" in os.environ:
+        idxList = [int(os.environ["NU_IDX"])]
+    else:
+        idxList = range(nNu)
+
     print(f"N = {N}, port {p}, Vp = {Vp} V, I0 = {I0} A, Zin = {Vp/I0} Ohm, Ngcd = {Ngcd}, "
           f"nuMax = max D/Q (arbitrary current) = {nuMax:.6g}, {nNu} weights "
           f"nuMax*10^[{nuLog[0]}, {nuLog[1]}]")
@@ -124,7 +137,8 @@ def main(argv):
     Ir = np.ones(N - 1, dtype=complex)
     out = {k: [] for k in ["gGlobal", "gGCD", "Iopt", "Vsca", "Dopt", "Qopt", "ZinOpt",
                            "lagsGlobal", "lagsGCD", "Lstar", "minEigGCD", "lam0"]}
-    for iNu, nu in enumerate(nuList):
+    for iNu in idxList:
+        nu = nuList[iNu]
         M = Msym(nu * Qs * omW - Ud)
         A0 = Msym(Gr.conj().T @ M @ Gr)
         s0 = Gr.conj().T @ M @ g
@@ -190,6 +204,15 @@ def main(argv):
         out["minEigGCD"].append(np.min(np.linalg.eigvalsh(Lstar)))
         out["lam0"].append(lam)
 
+    if "NU_IDX" in os.environ:
+        part = partFile.format(idxList[0])
+        np.savez(part, nuIdx=idxList[0], **{k: np.asarray(v[0]) for k, v in out.items()})
+        print(f"saved {part}")
+        return out
+    return save(outFile, nuList, nuMax, Ngcd, out)
+
+
+def save(outFile, nuList, nuMax, Ngcd, out):
     res = dict(nu=nuList, nuMax=nuMax, Ngcd=Ngcd,
                gGlobal=np.array(out["gGlobal"]), gGCD=np.array(out["gGCD"]),
                Iopt=np.array(out["Iopt"]).T, Vsca=np.array(out["Vsca"]).T,

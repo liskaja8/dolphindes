@@ -58,11 +58,13 @@ quadOrder   = 7;
 GammaMax    = 1/3;          % matched designs |Gamma| < GammaMax
 
 thisDir   = fileparts(mfilename('fullpath'));
+resDir    = fullfile(thisDir, 'results');
+if ~exist(resDir, 'dir'), mkdir(resDir); end
 pythonExe = fullfile(thisDir, '..', '..', '.venv', 'bin', 'python');
 pyScript  = fullfile(thisDir, 'maxDQparetoGCD.py');
-inFile    = fullfile(thisDir, [tag '_in.mat']);
-outFile   = fullfile(thisDir, [tag '_out.mat']);
-opFile    = fullfile(thisDir, [tag '_operators.mat']);
+inFile    = fullfile(resDir, [tag '_in.mat']);
+outFile   = fullfile(resDir, [tag '_out.mat']);
+opFile    = fullfile(resDir, [tag '_operators.mat']);
 
 %% Physical constants
 c0    = models.utilities.constants.c0;
@@ -149,7 +151,7 @@ if any(strcmp(stage, {'post', 'all'}))
     DubGl  = min(gGl.' + nu.'.*Qgrid, [], 1);
     DubGCD = min(gGCD.' + nu.'.*Qgrid, [], 1);
     QlbMin = NaN;           % minimum Q bound (minQportGCD)
-    qFile = fullfile(thisDir, 'minQport_patch21ka1_out.mat');
+    qFile = fullfile(resDir, 'minQport_patch21ka1_out.mat');
     if m == 25 && isfile(qFile)
         q = load(qFile, 'QlbGCD');
         QlbMin = q.QlbGCD;
@@ -209,7 +211,7 @@ if any(strcmp(stage, {'post', 'all'}))
     viol = allD(matched) - min(gGCD.' + nu.'.*allQ(matched), [], 1);
     fprintf('max (D - D_ub(Q)) over matched inferred designs: %.3e\n', max(viol));
 
-    save(fullfile(thisDir, [tag '_post.mat']), 'dsg', 'Qgrid', 'DubGl', 'DubGCD', ...
+    save(fullfile(resDir, [tag '_post.mat']), 'dsg', 'Qgrid', 'DubGl', 'DubGCD', ...
         'allD', 'allQ', 'allG', 'allNu', 'allN', 'pareto', 'QlbMin');
 
     %% Figures
@@ -228,19 +230,19 @@ if any(strcmp(stage, {'post', 'all'}))
         hh(end + 1) = xline(QlbMin, 'b--', 'LineWidth', 1.2);
         lg{end + 1} = sprintf('min Q bound %.3g', QlbMin);
     end
-    yl = ylim; ylim([0 min(yl(2), 1.3*max(DubGCD(Qgrid <= 2*max(allQ(pareto)))))]);
+    ylim([0 1.1*max([out.Dopt(:); allD(:)])]);
     xlim([0.9*min([allQ(pareto), Qmin]), 2*max(out.Qopt)]);
     xlabel('Q'); ylabel('broadside directivity D'); grid on;
     legend(hh, lg, 'Location', 'southeast');
     title('D-Q Pareto front, PEC 2:1 plate, ka = 1, Z_{in} = 50 \Omega');
-    exportgraphics(gcf, fullfile(thisDir, [tag '_pareto.png']));
+    exportgraphics(gcf, fullfile(resDir, [tag '_pareto.png']));
 
     figure;
     semilogx(nu, gGl, 'k.:', nu, gGCD, 'r.-'); hold on;
     xline(out.nuMax, 'b--', '\nu_{max}');
     xlabel('\nu'); ylabel('g(\nu) \geq max (D - \nu Q)'); grid on;
     legend('global', 'GCD', 'Location', 'best');
-    exportgraphics(gcf, fullfile(thisDir, [tag '_gnu.png']));
+    exportgraphics(gcf, fullfile(resDir, [tag '_gnu.png']));
 
     % representative designs: min Q, knee (max distance to the chord), max D
     Pq = allQ(pareto); Pd = allD(pareto);
@@ -266,12 +268,12 @@ if any(strcmp(stage, {'post', 'all'}))
         TSaux.plotStructure(mesh, BF, port, S, false);
         title(sprintf('%s: %d/%d BFs, Q = %.3g, D = %.3g (bound %.3g), Z_{in} = %.1f %+.1fj \\Omega', ...
             names{iP}, numel(S), N, Qk, Dk, min(gGCD + nu*Qk), real(Zk), imag(Zk)));
-        exportgraphics(gcf, fullfile(thisDir, [dTag '_structure.png']));
+        exportgraphics(gcf, fullfile(resDir, [dTag '_structure.png']));
 
         results.plotCurrent(mesh, 'basisFcns', BF, 'iVec', I, ...
             'part', 'abs', 'arrowScale', 'proportional');
         title(sprintf('|J| of the %s design, Q = %.3g, D = %.3g', names{iP}, Qk, Dk));
-        exportgraphics(gcf, fullfile(thisDir, [dTag '_current.png']));
+        exportgraphics(gcf, fullfile(resDir, [dTag '_current.png']));
 
         % directivity pattern in the xz (phi = 0) and yz (phi = 90 deg) planes
         figure;
@@ -288,7 +290,7 @@ if any(strcmp(stage, {'post', 'all'}))
         pax.ThetaLim = [-90 90];
         legend({'xz plane', 'yz plane'}, 'Location', 'southoutside');
         title(sprintf('directivity of the %s design', names{iP}));
-        exportgraphics(gcf, fullfile(thisDir, [dTag '_pattern.png']));
+        exportgraphics(gcf, fullfile(resDir, [dTag '_pattern.png']));
     end
 end
 

@@ -58,7 +58,7 @@ def Msym(M):
 
 def main(argv):
     here = os.path.dirname(os.path.abspath(__file__))
-    inFile = argv[1] if len(argv) >= 2 else os.path.join(here, "maxGain_patch21ka1_in.mat")
+    inFile = argv[1] if len(argv) >= 2 else os.path.join(here, "results", "maxGain_patch21ka1_in.mat")
     outFile = argv[2] if len(argv) >= 3 else inFile.replace("_in.mat", "_out.mat")
     data = sio.loadmat(inFile, squeeze_me=True)
     R0 = np.asarray(data["R0"], dtype=float)
