@@ -1,9 +1,12 @@
-%% Minimum Q of a PEC 2:1 plate fed by a 50 Ohm port, dual bound with GCD
+%% Minimum Q of a PEC 2:1 plate fed by a port, dual bound with GCD
 % Minimizes the stored energy (omW) of a PEC structure inside a 2:1
-% rectangle, ka = 1, fed by a delta gap at the basis function nearest the
-% midpoint of the longer edge. The input voltage 1 V and the input
-% impedance 50 Ohm fix the input current I0 = 20 mA and the radiated power
-% P = 10 mW, so Q = 25 I'*omW*I for a self-resonant current.
+% rectangle of electrical size ka (default 1), fed by a delta gap at the
+% basis function nearest the midpoint of the longer edge (feed = 'edge',
+% default) or the center of the plate (feed = 'center', the mirror image of
+% a monopole over a ground plane; Zin0 = 100 Ohm corresponds to a 50 Ohm
+% monopole). The input voltage 1 V and the input impedance Zin0 (default
+% 50 Ohm) fix the input current I0 = Vp/Zin0 and the radiated power
+% P = Vp*I0/2, so Q = I'*omW*I/(2*Vp*I0) for a self-resonant current.
 %
 % The dual bound with GCD refinement is evaluated by minQportGCD.py in the
 % scattered-voltage variable Vsca = -Z0*I (run on Narval by
@@ -29,26 +32,42 @@ close all;
 if ~exist('m', 'var')
     m = 25;                 % EuCAP27 ortho mesh, 25 -> N = 285, 50 -> N = 744
 end
-tag         = 'minQport_patch21ka1';
+if ~exist('ka', 'var')
+    ka = 1;                 % electrical size (mesh density is fixed, Ny depends on m only)
+end
+if ~exist('Zin0', 'var')
+    Zin0 = 50;              % required input impedance (Ohm)
+end
+if ~exist('feed', 'var')
+    feed = 'edge';          % 'edge': midpoint of the longer edge, 'center': center of the plate
+end
+tag = ['minQport_patch21ka' strrep(num2str(ka), '.', '')];   % ka = 1 -> ka1, 0.3 -> ka03
+if strcmp(feed, 'center')
+    tag = [tag '_c'];
+end
+if Zin0 ~= 50
+    tag = sprintf('%s_Z%g', tag, Zin0);
+end
 if m ~= 25
     tag = sprintf('%s_m%d', tag, m);
 end
-ka          = 1;
 fixMeshToKa = 2;
 f0          = 2.45e9;       % frequency (Hz)
 Vp          = 1;            % input voltage (V)
-Zin0        = 50;           % required input impedance (Ohm)
 I0          = Vp/Zin0;      % input current (A)
+QChu        = 1/ka^3 + 1/ka; % Chu bound (TM)
 if ~exist('Ngcd', 'var')
     Ngcd = 50;              % number of GCD iterations
 end
 
 thisDir = fileparts(mfilename('fullpath'));
-inFile  = fullfile(thisDir, [tag '_in.mat']);
+resDir  = fullfile(thisDir, 'results');
+if ~exist(resDir, 'dir'), mkdir(resDir); end
+inFile  = fullfile(resDir, [tag '_in.mat']);
 if ~exist('runTag', 'var')
     runTag = '';            % e.g. '_gcd20' -> *_gcd20_out.mat, *_gcd20_<source>_* figures
 end
-outFile = fullfile(thisDir, [tag runTag '_out.mat']);
+outFile = fullfile(resDir, [tag runTag '_out.mat']);
 
 %% Mesh (EuCAP27/code/getMatricesFixedMesh.m)
 c0  = models.utilities.constants.c0;
@@ -77,11 +96,26 @@ switch stage
         R0  = real(OP.R0);  R0  = (R0 + R0.')/2;
         X0  = real(OP.X0);  X0  = (X0 + X0.')/2;
         omW = real(OP.omW); omW = (omW + omW.')/2;
+        % copper losses Zs*Lmat (maxEtaQparetoGCD.py), normalize = true is the 1/l_n scaling
+        sigma = 5.96e7;
+        delta = sqrt(2/(2*pi*f0*models.utilities.constants.mu0*sigma));  % skin depth
+        Zs    = (1 + 1i)/(sigma*delta);                                  % surface impedance
+        dn    = 1./mesh.triangleEdgeLengths(BF.data(:, 3));
+        Lmat  = full(models.utilities.matrixOperators.MoM2D.ohmicLosses.computeL(mesh, BF));
+        Lmat  = dn.*Lmat.*dn.'; Lmat = (Lmat + Lmat.')/2;
 
-        %% Port: BF nearest the midpoint of the longer (bottom, y = -wid/2) edge
-        feederPosition = [0, min(mesh.nodes(:, 2)) + h/2, 0];
+        %% Port: BF nearest the midpoint of the longer (bottom, y = -wid/2) edge or the center
+        switch feed
+            case 'edge'
+                feederPosition = [0, min(mesh.nodes(:, 2)) + h/2, 0];
+            case 'center' % vertical pixel edge at x = 0, centered at y = 0 only for odd Ny
+                feederPosition = [0, 0, 0];
+        end
         edgeCenters = mesh.triangleEdgeCenters(BF.data(:, 3), :);
         [dist, port] = min(models.utilities.vectorOperations.rowNorm(edgeCenters - feederPosition));
+        if strcmp(feed, 'center') && dist > 1e-9*h
+            error('no edge centered at the plate center (Ny = %d is even), choose another m', Ny);
+        end
         fprintf('N = %d, size %.4f x %.4f m, port BF %d at [%.4f %.4f] (%.1e m from target)\n', ...
             N, len, wid, port, edgeCenters(port, 1:2), dist);
         fprintf('min eig: omW %.3e, R0 %.3e\n', min(eig(omW)), min(eig(R0)));
@@ -96,24 +130,27 @@ switch stage
         hndl = results.plotMesh(mesh, 'options', struct('showEdges', true, 'showTriangles', true));
         set(hndl.edges(BF.data(port, 3)), 'Color', [1 0 0], 'LineWidth', 2);
         title(sprintf('N = %d, port BF %d', N, port));
-        exportgraphics(gcf, fullfile(thisDir, [tag '_port.png']));
+        exportgraphics(gcf, fullfile(resDir, [tag '_port.png']));
 
         port = port - 1; %#ok<NASGU> zero based in Python
-        save(inFile, 'R0', 'X0', 'omW', 'port', 'I0', 'Vp', 'Ngcd');
+        save(inFile, 'R0', 'X0', 'omW', 'Lmat', 'Zs', 'port', 'I0', 'Vp', 'Ngcd');
         port = port + 1;
-        save(fullfile(thisDir, [tag '_operators.mat']), 'mesh', 'BF', 'R0', 'X0', 'omW', ...
-            'port', 'Qfull', 'ZinFull');
+        save(fullfile(resDir, [tag '_operators.mat']), 'mesh', 'BF', 'R0', 'X0', 'omW', ...
+            'Lmat', 'Zs', 'port', 'Qfull', 'ZinFull');
         fprintf('saved %s\n', inFile);
 
     case 'post'
         %% Dual optimum
-        ops = load(fullfile(thisDir, [tag '_operators.mat']));
+        ops = load(fullfile(resDir, [tag '_operators.mat']));
         if isfile(outFile)
             out = load(outFile);
         else % GCD job not finished yet
             out = struct('QlbGlobal', NaN, 'QlbGCD', NaN, 'QlbLocal', NaN, 'Iopt', NaN);
         end
-        localFile = fullfile(thisDir, [tag '_localout.mat']);
+        localFile = fullfile(resDir, [tag runTag '_localout.mat']);
+        if ~isfile(localFile) % runs sharing one all-local bound (e.g. runTag = '_gcd20')
+            localFile = fullfile(resDir, [tag '_localout.mat']);
+        end
         if isfile(localFile) % all-local bound from a separate LOCAL_ONLY job
             loc = load(localFile);
             out.QlbLocal  = loc.QlbLocal;
@@ -166,8 +203,11 @@ switch stage
             nList(iBest), QList(iBest), real(ZinList(iBest)), imag(ZinList(iBest)), GammaList(iBest));
         fprintf('inferred (min Q):       %d BFs, Q = %.4g, Zin = %.3f %+.3fj, |Gamma| = %.3f\n', ...
             nList(iBestQ), QList(iBestQ), real(ZinList(iBestQ)), imag(ZinList(iBestQ)), GammaList(iBestQ));
+        fprintf(['Q/QChu (QChu = %.4g): global %.3f, GCD %.3f, local %.3f, Iopt %.3f, ' ...
+            'inferred %.3f, full plate %.3f\n'], QChu, out.QlbGlobal/QChu, out.QlbGCD/QChu, ...
+            out.QlbLocal/QChu, QIopt/QChu, QList(iBest)/QChu, ops.Qfull/QChu);
 
-        save(fullfile(thisDir, [postTag '_post.mat']), 'zInf', 'order', 'nList', 'QList', ...
+        save(fullfile(resDir, [postTag '_post.mat']), 'zInf', 'order', 'nList', 'QList', ...
             'ZinList', 'GammaList', 'iBest', 'iBestQ', 'S', 'Ibest', 'QIopt', 'ZinIopt');
 
         %% Figures
@@ -182,7 +222,7 @@ switch stage
         subplot(2, 1, 2);
         scatter(bfX, bfY, 40, abs(Iopt), 'filled'); axis equal; colorbar;
         title('|I_{opt}| (A)');
-        exportgraphics(gcf, fullfile(thisDir, [postTag '_inference.png']));
+        exportgraphics(gcf, fullfile(resDir, [postTag '_inference.png']));
 
         figure;
         hQ = semilogy(nList, QList, 'o-'); hold on;
@@ -197,23 +237,23 @@ switch stage
             legend(hQ, 'inferred (none with |\Gamma| < 1/3)', 'Location', 'best');
         end
         grid on;
-        exportgraphics(gcf, fullfile(thisDir, [postTag '_Qsweep.png']));
+        exportgraphics(gcf, fullfile(resDir, [postTag '_Qsweep.png']));
 
         % inferred structure (BFs kept as metal, removed BFs are slots)
         TSaux.plotStructure(mesh, BF, port, S, false);
         title(sprintf('inferred (%s): %d/%d BFs, Q = %.3g (bound %.3g), Z_{in} = %.1f %+.1fj \\Omega', ...
             source, numel(S), N, QList(iBest), Qlb, real(ZinList(iBest)), imag(ZinList(iBest))));
-        exportgraphics(gcf, fullfile(thisDir, [postTag '_structure.png']));
+        exportgraphics(gcf, fullfile(resDir, [postTag '_structure.png']));
 
         results.plotCurrent(mesh, 'basisFcns', BF, 'iVec', Ibest, ...
             'part', 'abs', 'arrowScale', 'proportional');
         title(sprintf('|J| of the inferred structure, Q = %.3g', QList(iBest)));
-        exportgraphics(gcf, fullfile(thisDir, [postTag '_structureCurrent.png']));
+        exportgraphics(gcf, fullfile(resDir, [postTag '_structureCurrent.png']));
 
         results.plotCurrent(mesh, 'basisFcns', BF, 'iVec', Iopt, ...
             'part', 'abs', 'arrowScale', 'proportional');
         title(sprintf('|J_{opt}| (%s), Q = %.3g, bound %.3g', source, QIopt, Qlb));
-        exportgraphics(gcf, fullfile(thisDir, [postTag '_dualCurrent.png']));
+        exportgraphics(gcf, fullfile(resDir, [postTag '_dualCurrent.png']));
 end
 
 function [Q, Zin] = portQ(I, port, Vp, R0, X0, omW)

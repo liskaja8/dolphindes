@@ -59,11 +59,13 @@ phiDir      = 0;
 quadOrder   = 7;
 
 thisDir   = fileparts(mfilename('fullpath'));
+resDir    = fullfile(thisDir, 'results');
+if ~exist(resDir, 'dir'), mkdir(resDir); end
 pythonExe = fullfile(thisDir, '..', '..', '.venv', 'bin', 'python');
 pyScript  = fullfile(thisDir, 'maxGainGCD.py');
-inFile    = fullfile(thisDir, [tag '_in.mat']);
-outFile   = fullfile(thisDir, [tag '_out.mat']);
-opFile    = fullfile(thisDir, [tag '_operators.mat']);
+inFile    = fullfile(resDir, [tag '_in.mat']);
+outFile   = fullfile(resDir, [tag '_out.mat']);
+opFile    = fullfile(resDir, [tag '_operators.mat']);
 
 %% Physical constants
 c0    = models.utilities.constants.c0;
@@ -213,7 +215,7 @@ if any(strcmp(stage, {'post', 'all'}))
         numel(S), N, GrBest, 10*log10(GrBest), Gbest, real(ZinBest), imag(ZinBest), Glb, ...
         10*log10(Glb), ops.Gfull, ops.Gfull*(1 - abs((ops.ZinFull - Zin0)/(ops.ZinFull + Zin0))^2));
 
-    save(fullfile(thisDir, [tag '_post.mat']), 'dPw', 'dLag', 'Jpw', 'Jlag', 'sweep', 'S', ...
+    save(fullfile(resDir, [tag '_post.mat']), 'dPw', 'dLag', 'Jpw', 'Jlag', 'sweep', 'S', ...
         'Ibest', 'Gbest', 'GrBest', 'ZinBest', 'Gpw', 'Glag');
 
     %% Figures
@@ -234,7 +236,7 @@ if any(strcmp(stage, {'post', 'all'}))
         axis equal off; colormap(flipud(gray)); clim([0 1]); colorbar;
         title(['density d, ' ttl{iD}]);
     end
-    exportgraphics(gcf, fullfile(thisDir, [tag '_inference.png']));
+    exportgraphics(gcf, fullfile(resDir, [tag '_inference.png']));
 
     figure;
     hS = gobjects(1, 2*numel(sweep));
@@ -251,22 +253,22 @@ if any(strcmp(stage, {'post', 'all'}))
     xlabel('number of metal BFs (sorted by density)'); ylabel('broadside gain');
     legend(hS, {'pointwise G', 'pointwise (1-|\Gamma|^2)G', 'Lagrangian G', ...
         'Lagrangian (1-|\Gamma|^2)G'}, 'Location', 'northwest'); grid on;
-    exportgraphics(gcf, fullfile(thisDir, [tag '_sweep.png']));
+    exportgraphics(gcf, fullfile(resDir, [tag '_sweep.png']));
 
     TSaux.plotStructure(mesh, BF, port, S, false);
     title(sprintf('inferred: %d/%d BFs, G_r = %.3g (%.2f dBi), bound %.3g, Z_{in} = %.1f %+.1fj \\Omega', ...
         numel(S), N, GrBest, 10*log10(GrBest), Glb, real(ZinBest), imag(ZinBest)));
-    exportgraphics(gcf, fullfile(thisDir, [tag '_structure.png']));
+    exportgraphics(gcf, fullfile(resDir, [tag '_structure.png']));
 
     results.plotCurrent(mesh, 'basisFcns', BF, 'iVec', Ibest, ...
         'part', 'abs', 'arrowScale', 'proportional');
     title(sprintf('|J| of the inferred structure, G = %.3g', Gbest));
-    exportgraphics(gcf, fullfile(thisDir, [tag '_structureCurrent.png']));
+    exportgraphics(gcf, fullfile(resDir, [tag '_structureCurrent.png']));
 
     results.plotCurrent(mesh, 'basisFcns', BF, 'iVec', out.Iopt(:), ...
         'part', 'abs', 'arrowScale', 'proportional');
     title(sprintf('|J_{opt}| (GCD), G = %.3g, bound %.3g', out.GIopt, Glb));
-    exportgraphics(gcf, fullfile(thisDir, [tag '_dualCurrent.png']));
+    exportgraphics(gcf, fullfile(resDir, [tag '_dualCurrent.png']));
 
     % gain pattern in the xz (phi = 0) and yz (phi = 90 deg) planes
     th = linspace(-pi/2, pi/2, 61);
@@ -287,14 +289,14 @@ if any(strcmp(stage, {'post', 'all'}))
     pax.ThetaLim = [-90 90];
     legend({'xz plane', 'yz plane', 'GCD bound'}, 'Location', 'southoutside');
     title('gain of the inferred design');
-    exportgraphics(gcf, fullfile(thisDir, [tag '_pattern.png']));
+    exportgraphics(gcf, fullfile(resDir, [tag '_pattern.png']));
 end
 
 if any(strcmp(stage, {'greedy', 'all'}))
     %% Greedy binary local search from the inferred design
     ops  = load(opFile);
     out  = load(outFile);
-    post = load(fullfile(thisDir, [tag '_post.mat']));
+    post = load(fullfile(resDir, [tag '_post.mat']));
     BF = ops.BF; port = ops.port; Fth = ops.Fth; Fph = ops.Fph;
     N  = BF.nUnknowns;
     Z  = ops.R0 + 1i*ops.X0 + Zs*ops.Lmat;
@@ -329,24 +331,24 @@ if any(strcmp(stage, {'greedy', 'all'}))
         size(hist, 1) - 1, toc(t1), nnz(keep), N, Gr, 10*log10(Gr), G, Glb);
     Sg = find(keep);
     Ig = zeros(N, 1); Ig(Sg) = Z(Sg, Sg)\V(Sg);
-    save(fullfile(thisDir, [tag '_greedy.mat']), 'Sg', 'Ig', 'Gr', 'G', 'Zin', 'hist');
+    save(fullfile(resDir, [tag '_greedy.mat']), 'Sg', 'Ig', 'Gr', 'G', 'Zin', 'hist');
 
     TSaux.plotStructure(mesh, BF, port, Sg, false);
     title(sprintf('greedy: %d/%d BFs, G_r = %.3g (%.2f dBi), G = %.3g, bound %.3g, Z_{in} = %.1f %+.1fj \\Omega', ...
         numel(Sg), N, Gr, 10*log10(Gr), G, Glb, real(Zin), imag(Zin)));
-    exportgraphics(gcf, fullfile(thisDir, [tag '_greedyStructure.png']));
+    exportgraphics(gcf, fullfile(resDir, [tag '_greedyStructure.png']));
 
     results.plotCurrent(mesh, 'basisFcns', BF, 'iVec', Ig, ...
         'part', 'abs', 'arrowScale', 'proportional');
     title(sprintf('|J| of the greedy structure, G_r = %.3g', Gr));
-    exportgraphics(gcf, fullfile(thisDir, [tag '_greedyCurrent.png']));
+    exportgraphics(gcf, fullfile(resDir, [tag '_greedyCurrent.png']));
 
     figure;
     plot(hist(:, 1), hist(:, 2), '.-', hist(:, 1), hist(:, 3), '.-'); hold on;
     yline(Glb, 'r--', sprintf('GCD bound %.3g', Glb));
     xlabel('flip'); ylabel('broadside gain'); grid on;
     legend({'(1-|\Gamma|^2)G', 'G'}, 'Location', 'southeast');
-    exportgraphics(gcf, fullfile(thisDir, [tag '_greedyHistory.png']));
+    exportgraphics(gcf, fullfile(resDir, [tag '_greedyHistory.png']));
 end
 
 function [G, Zin] = portGain(I, port, Vp, Fth, Fph, Z0vac)

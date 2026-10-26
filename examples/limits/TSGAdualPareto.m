@@ -33,6 +33,8 @@ E0    = 1;                  % plane wave amplitude (V/m), Psca/Pinc is independe
 Ngcd  = 20;                 % number of GCD iterations
 
 thisDir   = fileparts(mfilename('fullpath'));
+resDir    = fullfile(thisDir, 'results');
+if ~exist(resDir, 'dir'), mkdir(resDir); end
 pythonExe = fullfile(thisDir, '..', '..', '.venv', 'bin', 'python');
 pyScript  = fullfile(thisDir, 'dualGCDforMTB.py');
 
@@ -87,7 +89,7 @@ tag = structure;
 if strcmp(structure, 'patch21ka1')
     tag = sprintf('%s_%s_m%d', structure, polarization, m);
 end
-cacheFile = fullfile(thisDir, ['TSGAdualPareto_' tag '_operators.mat']);
+cacheFile = fullfile(resDir, ['TSGAdualPareto_' tag '_operators.mat']);
 useCache  = false;
 if loadPrecomputed && isfile(cacheFile)
     cache    = load(cacheFile);
@@ -296,7 +298,7 @@ results.plotCurrent(OP.Mesh, 'basisFcns', OP.BF, 'Ivec', Iopt, ...
     'part', 'abs', 'arrowScale', 'proportional');
 title(sprintf('|I_{opt}|, GCD bound %.4e', dual.dualGCD));
 
-save(fullfile(thisDir, ['TSGAdualPareto_' tag '.mat']), ...
+save(fullfile(resDir, ['TSGAdualPareto_' tag '.mat']), ...
     'dual', 'PsFull', 'Pinc', 'postData', 'FallND', 'WallND', 'PallND', ...
     'PsND', 'JND', 'solverSettings', 'optData');
 
